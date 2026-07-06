@@ -1,0 +1,59 @@
+# GLM-5.2-FP8 8-node P/D rehearsal for the glm52_llmd shape: HiSparse decode
+# + Mooncake distributed store scoped to the prefill nodes (kv_cache_offload
+# roles=["prefill"]) + llm-d router. Decode runs HiSparse host-resident KV:
+# gpu_memory_utilization 0.9 + 160 GiB pinned host pool per DP rank.
+#
+# Launch:  uv run inference @ configs/hisparse_canary/inference_mooncake.toml
+
+output_dir = "/beegfs/fares/outputs/hisparse-mooncake-rehearsal"
+
+enable_expert_parallel = true
+gpu_memory_utilization = 0.75
+enable_eplb = false
+use_deep_gemm = true
+enable_fp32_lm_head = true
+
+[env_vars]
+HF_HOME = "/beegfs/fares/hf"
+TRITON_CACHE_DIR = "/tmp/fares-cache/triton"
+DG_JIT_CACHE_DIR = "/tmp/.fares_deep_gemm"
+# Pin NVSHMEM/IBGDA to the 8 IB NICs (GPU PCIe affinity order) + explicit PE->NIC map
+NVSHMEM_HCA_LIST = "mlx5_0,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_9,mlx5_10,mlx5_11"
+NVSHMEM_ENABLE_NIC_PE_MAPPING = "1"
+VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER = "0"
+VLLM_CACHE_ROOT = "/tmp/fares-cache/vllm"
+VLLM_DEEP_GEMM_WARMUP = "skip"
+# UCX/NIXL rcache mitigation for disaggregated decode KV-transfer segfaults (libucs.so)
+UCX_RCACHE_MAX_UNRELEASED = "1024"
+
+[model]
+name = "/beegfs/fares/models/GLM-5.2-FP8"
+max_model_len = 131072
+tool_call_parser = "glm47"
+reasoning_parser = "glm45"
+
+[vllm_extra]
+enable_ep_weight_filter = true
+safetensors_load_strategy = "prefetch"
+
+[deployment]
+type = "disaggregated"
+num_prefill_nodes = 4
+num_decode_nodes = 4
+prefill_env_vars = { "VLLM_ENABLE_MOE_DP_CHUNK" = "0" }
+# max_num_seqs bounds the eagerly-allocated HiSparse hot buffers (~2.7 MB per
+# request-region per layer on GLM-5.2); the vLLM default (1024) OOMs the GPU
+# at load. 96/96 matches the proven glm5-llmd decode settings.
+decode_vllm_overrides = { max_num_batched_tokens = 96, max_num_seqs = 96, gpu_memory_utilization = 0.9, attention_config = { hisparse_config = { host_pool_gib = 160 } } }
+
+[kv_cache_offload]
+type = "mooncake"
+roles = ["prefill"]
+device_name = "mlx5_0,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_9,mlx5_10,mlx5_11"
+
+[kv_cache_offload.cpu]
+num_bytes = 1_000_000_000_000 # 1TB per prefill node
+
+[slurm]
+job_name = "hisparse-mc-rehearsal"
+partition = "all"

@@ -1,0 +1,45 @@
+# Plain-decode twin of the HiSparse canary (configs/hisparse_canary/inference.toml):
+# identical topology and model, no HiSparse overrides. Serves as the A/B baseline.
+#
+# Launch:  uv run inference @ configs/hisparse_canary/baseline.toml
+
+output_dir = "/beegfs/fares/outputs/hisparse-canary-baseline"
+
+enable_expert_parallel = true
+gpu_memory_utilization = 0.75
+enable_eplb = false
+use_deep_gemm = true
+enable_fp32_lm_head = true
+
+[env_vars]
+HF_HOME = "/beegfs/fares/hf"
+TRITON_CACHE_DIR = "/tmp/fares-cache/triton"
+DG_JIT_CACHE_DIR = "/tmp/.fares_deep_gemm"
+NVSHMEM_HCA_LIST = "mlx5_0,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_9,mlx5_10,mlx5_11"
+NVSHMEM_ENABLE_NIC_PE_MAPPING = "1"
+VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER = "0"
+VLLM_CACHE_ROOT = "/tmp/fares-cache/vllm"
+VLLM_DEEP_GEMM_WARMUP = "skip"
+UCX_RCACHE_MAX_UNRELEASED = "1024"
+
+[model]
+name = "/beegfs/fares/models/GLM-5.2-FP8"
+max_model_len = 131072
+tool_call_parser = "glm47"
+reasoning_parser = "glm45"
+
+[vllm_extra]
+enable_ep_weight_filter = true
+safetensors_load_strategy = "prefetch"
+
+[deployment]
+type = "disaggregated"
+num_prefill_nodes = 4
+num_decode_nodes = 4
+prefill_env_vars = { "VLLM_ENABLE_MOE_DP_CHUNK" = "0" }
+# Same decode cap as the HiSparse arm for a fair A/B (glm5-llmd decode settings).
+decode_vllm_overrides = { max_num_batched_tokens = 96, max_num_seqs = 96 }
+
+[slurm]
+job_name = "hisparse-canary-base"
+partition = "all"

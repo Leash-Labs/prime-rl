@@ -42,7 +42,9 @@ prefill_vllm_overrides = {"enable_dbo"=true}
 # AND acts as admission control: size it to sustained decode compute at the
 # target context length. gpu_memory_utilization can go to 0.9 since the GPU
 # KV budget only holds the indexer cache under HiSparse.
-decode_vllm_overrides = {"max_num_batched_tokens"=96, "max_num_seqs"=96, "gpu_memory_utilization"=0.9, "attention_config"={"hisparse_config"={"host_pool_gib"=160}}}
+# MTP k=1 (set at [inference] level): verify tokens count against the token
+# budget, so max_num_batched_tokens = max_num_seqs x (1+k).
+decode_vllm_overrides = {"max_num_batched_tokens"=192, "max_num_seqs"=96, "gpu_memory_utilization"=0.9, "attention_config"={"hisparse_config"={"host_pool_gib"=160}}}
 
 [inference.deployment.router]
 type = "llm-d"
@@ -123,9 +125,14 @@ tool_call_parser = "glm47"
 reasoning_parser = "glm45"
 
 # Speed up weight load: EP weight filtering + safetensors prefetch.
+# MTP speculative decoding (k=1: +109% decode throughput measured on
+# GLM-5.2-FP8 with HiSparse, zero extra hot-buffer VRAM at k=1). Applied to
+# both P/D roles: the KV-cache groups must match for NIXL, and prefill
+# produces the draft-layer KV the decode-side drafter conditions on.
 [inference.vllm_extra]
 enable_ep_weight_filter = true
 safetensors_load_strategy = "prefetch"
+speculative_config = { method = "mtp", num_speculative_tokens = 1 }
 
 # Mooncake distributed CPU KV store, scoped to PREFILL nodes only: decode
 # nodes need their RAM for the HiSparse pinned host pools (8 x 160 GiB), so

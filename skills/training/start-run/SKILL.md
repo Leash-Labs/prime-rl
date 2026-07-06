@@ -99,6 +99,14 @@ curl http://localhost:8000/v1/chat/completions \
   and applied after the base config (last key wins), so e.g.
   `decode_vllm_overrides = { gpu_memory_utilization = 0.9, attention_config = { hisparse_config = { host_pool_gib = 160 } } }`
   works as-is (see `configs/hisparse_canary/`).
+- **MTP with HiSparse**: set `speculative_config = { method = "mtp",
+  num_speculative_tokens = 1 }` under `[inference.vllm_extra]` (it is not a
+  first-class prime-rl field; vllm_extra applies to both P/D roles, which is
+  required — KV-cache groups must match for NIXL and prefill produces the
+  draft-layer KV), and bump decode `max_num_batched_tokens` to
+  `max_num_seqs x (1+k)` (verify tokens count against the budget). k=1 is
+  the validated setting (+109% decode throughput, no extra hot-buffer VRAM);
+  see `examples/glm52_llmd/`.
 
 ## Summary
 

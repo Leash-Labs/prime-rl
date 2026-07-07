@@ -105,8 +105,8 @@ curl http://localhost:8000/v1/chat/completions \
   required — KV-cache groups must match for NIXL and prefill produces the
   draft-layer KV), and bump decode `max_num_batched_tokens` to
   `max_num_seqs x (1+k)` (verify tokens count against the budget). k=1 is
-  the validated setting (+109% decode throughput, no extra hot-buffer VRAM);
-  see `examples/glm52_llmd/`.
+  the validated setting (+61% batch-1 / +42% c=32 decode at long contexts,
+  no extra hot-buffer VRAM); see `examples/glm52_llmd/`.
 
 ## Summary
 

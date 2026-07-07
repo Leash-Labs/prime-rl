@@ -17,7 +17,7 @@ Decode instances are **wideEP** (DP×EP with TP1 ranks, 8 engines/node — the s
 - **`non_cached_tokens = 128`**: short-delta requests skip prefill and go straight to decode; HiSparse supports this (local prefill writes to the host pool, context is staged host→GPU).
 - **Renderer**: `glm-5.1` — GLM-5.2 shares the GLM-5 template surface, so no dedicated renderer is needed; verify template fidelity once before long runs.
 - **`device_name`**: RDMA NICs for Mooncake — set by hand from `nvidia-smi topo -m` on your nodes.
-- **MTP (`speculative_config`, k=1)**: measured +109% decode throughput (411 → 859 tok/s at c=32) with acceptance parity vs plain GPU-KV decode. k=1 costs no extra hot-buffer VRAM (its buffer floor equals the non-spec default); k >= 2 grows hot buffers (1+k)x and lost to k=1 at moderate batch sizes in our A/B — re-measure before raising it. Verify tokens count against `max_num_batched_tokens` (hence 192 = 96 x 2 on decode).
+- **MTP (`speculative_config`, k=1)**: acceptance parity vs plain GPU-KV decode (≈0.97/position). Measured on HiSparse at ~8k-token contexts: +61% batch-1 decode (40.9 → 65.8 tok/s) and +42% at c=32 (520 → 740 tok/s); at short contexts and high batch a verify-step overhead currently cancels the gain, so expect the win at low concurrency and long contexts. k=1 costs no extra hot-buffer VRAM (its buffer floor equals the non-spec default); k >= 2 grows hot buffers (1+k)x and lost to k=1 at moderate batch sizes in our A/B — re-measure before raising it. Verify tokens count against `max_num_batched_tokens` (hence 192 = 96 x 2 on decode).
 
 ## Validation status
 

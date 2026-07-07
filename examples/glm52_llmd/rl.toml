@@ -125,10 +125,10 @@ tool_call_parser = "glm47"
 reasoning_parser = "glm45"
 
 # Speed up weight load: EP weight filtering + safetensors prefetch.
-# MTP speculative decoding (k=1: +109% decode throughput measured on
-# GLM-5.2-FP8 with HiSparse, zero extra hot-buffer VRAM at k=1). Applied to
-# both P/D roles: the KV-cache groups must match for NIXL, and prefill
-# produces the draft-layer KV the decode-side drafter conditions on.
+# MTP speculative decoding (k=1 on GLM-5.2-FP8 with HiSparse: +61% batch-1
+# decode, +42% at c=32 with ~8k-token contexts, zero extra hot-buffer VRAM).
+# Applied to both P/D roles: the KV-cache groups must match for NIXL, and
+# prefill produces the draft-layer KV the decode-side drafter conditions on.
 [inference.vllm_extra]
 enable_ep_weight_filter = true
 safetensors_load_strategy = "prefetch"

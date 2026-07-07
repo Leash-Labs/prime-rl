@@ -16,6 +16,9 @@ from prime_rl.utils.pathing import get_broadcast_dir, get_step_path, wait_for_pa
 from prime_rl.utils.utils import get_latest_ckpt_step
 
 
+MAX_CONSECUTIVE_WATCHER_ERRORS = 20
+
+
 class WeightWatcher:
     """``await watcher.start()`` to drive the polling loop until ``stop()``."""
 
@@ -40,6 +43,9 @@ class WeightWatcher:
 
         self.last_update_weights_time: float = 0.0
         self.last_wait_for_ckpt_time: float = 0.0
+        self.last_error_time: float = 0.0
+        self.error_count: int = 0
+        self.consecutive_error_count: int = 0
         self.update_count: int = 0
 
         self.task: asyncio.Task | None = None
@@ -50,9 +56,24 @@ class WeightWatcher:
         self.task = asyncio.current_task()
         try:
             while not self.stopped.is_set():
-                next_step = self.compute_next_ckpt_step()
-                if next_step > self.ckpt_step:
-                    await self.apply_policy_update(next_step)
+                try:
+                    next_step = self.compute_next_ckpt_step()
+                    if next_step > self.ckpt_step:
+                        await self.apply_policy_update(next_step)
+                    self.consecutive_error_count = 0
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self.last_error_time = time.time()
+                    self.error_count += 1
+                    self.consecutive_error_count += 1
+                    if self.consecutive_error_count > MAX_CONSECUTIVE_WATCHER_ERRORS:
+                        get_logger().error(
+                            f"WeightWatcher failed {self.consecutive_error_count} consecutive polls; aborting",
+                            exc_info=True,
+                        )
+                        raise
+                    get_logger().error(f"WeightWatcher poll failed; retrying: {exc!r}", exc_info=True)
                 await asyncio.sleep(self.poll_interval)
         except asyncio.CancelledError:
             return
@@ -135,6 +156,9 @@ class WeightWatcher:
         return {
             "watcher/policy_version": float(self.policy.version),
             "watcher/update_count": float(self.update_count),
+            "watcher/error_count": float(self.error_count),
+            "watcher/consecutive_error_count": float(self.consecutive_error_count),
+            "watcher/last_error_time": self.last_error_time,
             "watcher/last_update_weights_time": self.last_update_weights_time,
             "watcher/last_wait_for_ckpt_time": self.last_wait_for_ckpt_time,
         }

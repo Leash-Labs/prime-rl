@@ -128,6 +128,12 @@ def _patch_qwen3_5_text_position_ids():
         decoder_layer_cls.forward = _make_patched_forward(_original_forward)
 
 
+def _flatten_qwen3_5_varlen_batch(hidden_states: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
+    """Flatten stacked rows into the single token stream described by cu_seqlens."""
+    batch_size, seq_len, hidden_size = hidden_states.shape
+    return hidden_states.reshape(1, batch_size * seq_len, hidden_size), (batch_size, seq_len)
+
+
 def _patch_qwen3_5_linear_attn_varlen():
     """Thread cu_seqlens through Qwen3.5 GatedDeltaNet so packed batches don't
     leak conv/SSM state across sequences.
@@ -154,6 +160,7 @@ def _patch_qwen3_5_linear_attn_varlen():
             return _gdn_orig(self, hidden_states, cache_params=cache_params, attention_mask=attention_mask)
 
         hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
+        hidden_states, output_shape = _flatten_qwen3_5_varlen_batch(hidden_states)
         batch_size, seq_len, _ = hidden_states.shape
 
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)
@@ -213,7 +220,7 @@ def _patch_qwen3_5_linear_attn_varlen():
         z = z.reshape(-1, self.head_v_dim)
         core_attn_out = self.norm(core_attn_out, z)
         core_attn_out = core_attn_out.reshape(batch_size, seq_len, -1)
-        return self.out_proj(core_attn_out)
+        return self.out_proj(core_attn_out).reshape(*output_shape, -1)
 
     _gdn_forward._prl_varlen_patched = True
     Qwen3_5GatedDeltaNet.forward = _gdn_forward

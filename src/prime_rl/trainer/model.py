@@ -134,6 +134,23 @@ def _flatten_qwen3_5_varlen_batch(hidden_states: torch.Tensor) -> tuple[torch.Te
     return hidden_states.reshape(1, batch_size * seq_len, hidden_size), (batch_size, seq_len)
 
 
+def _get_qwen3_5_cu_seqlens(position_ids: torch.Tensor) -> torch.Tensor:
+    """Build GatedDeltaNet boundaries for cat-packed or row-stacked inputs."""
+    if position_ids.ndim == 3:
+        position_ids = position_ids[0]
+    if position_ids.ndim == 2 and position_ids.shape[0] > 1:
+        row_len = position_ids.shape[1]
+        return torch.arange(
+            0,
+            position_ids.numel() + 1,
+            row_len,
+            dtype=torch.int32,
+            device=position_ids.device,
+        )
+    cu_seqlens, _ = get_cu_seqlens_from_position_ids(position_ids)
+    return cu_seqlens
+
+
 def _patch_qwen3_5_linear_attn_varlen():
     """Thread cu_seqlens through Qwen3.5 GatedDeltaNet so packed batches don't
     leak conv/SSM state across sequences.
@@ -281,10 +298,7 @@ def _patch_qwen3_5_linear_attn_varlen():
         attn_impl = getattr(self.config, "_attn_implementation", None)
         cu_seqlens = None
         if attn_impl in ("flash_attention_2", "flash_attention_3", "fa4") and position_ids is not None:
-            pids = position_ids
-            if pids.ndim == 3:
-                pids = pids[0]
-            cu_seqlens, _ = get_cu_seqlens_from_position_ids(pids)
+            cu_seqlens = _get_qwen3_5_cu_seqlens(position_ids)
         kwargs["cu_seqlens"] = cu_seqlens
         return _text_orig(
             self,

@@ -14,7 +14,7 @@ import torch.distributed as dist
 from torch.distributed.checkpoint.stateful import Stateful
 
 from prime_rl.configs.trainer import CheckpointConfig
-from prime_rl.trainer.ckpt import CheckpointManager
+from prime_rl.trainer.ckpt import CheckpointManager, restore_scheduler_state
 from prime_rl.trainer.runs import Progress, get_multi_run_manager
 from prime_rl.trainer.world import get_world
 from prime_rl.utils.logger import get_logger
@@ -62,7 +62,7 @@ class RunState(Stateful):
             self.optimizer.load_state_dict(state_dict["optimizer"])
         # Load scheduler
         if "scheduler" in state_dict and self.scheduler is not None:
-            self.scheduler.load_state_dict(state_dict["scheduler"])
+            restore_scheduler_state(self.scheduler, state_dict["scheduler"])
         # Don't load progress because it resets packers count
         # There will be a step issue if we load progress
 

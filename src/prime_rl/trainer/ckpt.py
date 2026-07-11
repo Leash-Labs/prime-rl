@@ -42,6 +42,19 @@ def _try_rmtree(path: Path, logger) -> None:
         logger.warning(f"Failed to remove {path}: {e}, skipping cleanup")
 
 
+def restore_scheduler_state(scheduler: LRScheduler, state_dict: dict[str, Any]) -> None:
+    """Restore scheduler state and reapply its learning rates to the optimizer."""
+    scheduler.load_state_dict(state_dict)
+    last_lrs = scheduler.get_last_lr()
+    param_groups = scheduler.optimizer.param_groups
+    if len(last_lrs) != len(param_groups):
+        raise ValueError(
+            f"Scheduler restored {len(last_lrs)} learning rates for {len(param_groups)} optimizer parameter groups"
+        )
+    for param_group, lr in zip(param_groups, last_lrs, strict=True):
+        param_group["lr"] = lr
+
+
 class AppState(Stateful):
     """
     A wrapper for checkpointing the trainer with sharded weights and optimizer
@@ -142,7 +155,7 @@ class AppState(Stateful):
             )
 
         if self.scheduler is not None:
-            self.scheduler.load_state_dict(state_dict["scheduler"])
+            restore_scheduler_state(self.scheduler, state_dict["scheduler"])
         if self.progress is not None:
             for key, value in state_dict["progress"].items():
                 setattr(self.progress, key, value)

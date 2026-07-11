@@ -1,4 +1,5 @@
 from collections import Counter
+from types import SimpleNamespace
 
 import pytest
 from datasets import Dataset, interleave_datasets
@@ -6,6 +7,25 @@ from transformers import AutoTokenizer
 
 from prime_rl.trainer.sft.data import SFTDataset
 from prime_rl.trainer.utils import print_sample
+
+
+def test_renderer_training_sample_object(monkeypatch):
+    tokenizer = SimpleNamespace(eos_token_id=2)
+    dataset = SFTDataset(
+        Dataset.from_list([{"messages": [{"role": "assistant", "content": "answer"}]}]),
+        tokenizer=tokenizer,
+        renderer=object(),
+        shuffle=False,
+    )
+    rendered = SimpleNamespace(token_ids=[1, 2], loss_mask=[False, True])
+    monkeypatch.setattr("prime_rl.trainer.sft.data.build_training_sample", lambda *args, **kwargs: rendered)
+
+    assert next(iter(dataset)) == {
+        "input_ids": [1],
+        "target_ids": [2],
+        "loss_mask": [True],
+        "position_ids": [0],
+    }
 
 
 @pytest.fixture(scope="module")

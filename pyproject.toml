@@ -14,12 +14,12 @@ dependencies = [
     "loguru>=0.7.3",
     "pyarrow>=21.0.0",
     "numpy>=2.2.6",
-    "torch>=2.9.0",
-    "torchvision",
-    "torchaudio",
+    "torch==2.12.1",
+    "torchvision==0.27.1",
+    "torchaudio==2.11.0",
     "torchdata>=0.11.0",
     "transformers==5.6.2",
-    "vllm>=0.24.0",
+    "vllm==0.24.0",
     "mooncake-transfer-engine>=0.3.10.post2",
     "wandb>=0.26.1",
     "wandb-workspaces>=0.4.3",
@@ -59,7 +59,7 @@ prime_rl = "prime_rl.inference.patches:apply_shared_vllm_patches"
 
 [project.optional-dependencies]
 flash-attn = [
-    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.4/flash_attn-2.8.3+cu128torch2.11-cp312-cp312-linux_x86_64.whl ; platform_machine == 'x86_64'",
+    "flash-attn==2.8.3 ; platform_machine == 'x86_64'",
 ]
 flash-attn-3 = ["flash_attn_3"]
 
@@ -137,15 +137,11 @@ envs = [
 disagg = [
     "deep-ep ; platform_machine == 'x86_64'",
     "deep-gemm ; platform_machine == 'x86_64'",
-    "nixl",
-    "nixl-cu12 ; platform_machine == 'x86_64'",
+    "nixl-cu13==0.10.1 ; platform_machine == 'x86_64'",
     "vllm-router ; platform_machine == 'x86_64'",
 ]
 gpt-oss = [
     "kernels",
-]
-modelexpress = [
-    "modelexpress==0.3.0",
 ]
 quack = [
     "quack-kernels>=0.4.1",
@@ -156,6 +152,17 @@ all = [
     "prime-rl[quack]",
     "prime-rl[flash-attn-3]",
     "prime-rl[flash-attn-cute]",
+]
+cluster = [
+    "prime-rl[flash-attn]",
+    "prime-rl[disagg]",
+    "prime-rl[quack]",
+    "prime-rl[envs]",
+    # vLLM builds without isolation so it can use the CUDA 13.2 torch runtime.
+    "cmake>=3.26.1",
+    "setuptools-scm>=8.0",
+    "setuptools-rust>=1.9.0",
+    "wheel",
 ]
 
 [dependency-groups]
@@ -178,7 +185,7 @@ dev = [
 # *without* the cooldown — bypassing this security policy.
 required-version = ">=0.11.1"
 exclude-newer = "7 days"
-no-build-isolation-package = ["flash-attn"]
+no-build-isolation-package = ["flash-attn", "vllm"]
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
@@ -186,10 +193,11 @@ environments = [
 # Override torch's pinned cuDNN to fix Conv3d performance regression (torch 2.9 + cuDNN 9.8-9.14)
 # See: https://github.com/pytorch/pytorch/issues/166122
 override-dependencies = [
-    "nvidia-cudnn-cu12>=9.15",
+    "nvidia-cudnn-cu13>=9.20",
     "nvidia-cutlass-dsl>=4.4.1",
     "transformers==5.6.2",
-    "torch>=2.9.0",
+    "torch==2.12.1",
+    "torchvision==0.27.1",
     "openenv-core",
 ]
 
@@ -197,16 +205,101 @@ override-dependencies = [
 # compatible with protobuf 6. prime-sandboxes requires protobuf>=6.31.1; keep
 # this capped to the validated protobuf major.
 [[tool.uv.dependency-metadata]]
-name = "modelexpress"
-version = "0.3.0"
+name = "flash-attn-3"
+version = "3.0.0"
+requires-dist = ["torch"]
+
+[[tool.uv.dependency-metadata]]
+name = "deep-ep"
+version = "1.2.1+29d31c0"
+requires-dist = ["torch"]
+
+[[tool.uv.dependency-metadata]]
+name = "deep-gemm"
+version = "2.5.0+891d57b"
+requires-dist = ["torch"]
+
+[[tool.uv.dependency-metadata]]
+name = "torchaudio"
+version = "2.11.0"
+requires-dist = ["torch"]
+
+[[tool.uv.dependency-metadata]]
+name = "vllm"
+version = "0.24.0"
 requires-dist = [
-    "grpcio>=1.66.2",
-    "huggingface_hub>=0.20.0",
-    "nixl[cu12]",
-    "numpy>=1.24.0",
-    "protobuf>=5.27.0,<7.0.0",
-    "pydantic>=2.0.0",
-    "torch>=2.6.0",
+    "regex",
+    "cachetools",
+    "psutil",
+    "sentencepiece",
+    "numpy",
+    "requests>=2.26.0",
+    "tqdm",
+    "blake3",
+    "py-cpuinfo",
+    "transformers>=5.5.3",
+    "tokenizers>=0.21.1",
+    "safetensors>=0.6.2",
+    "protobuf!=6.30.*,!=6.31.*,!=6.32.*,!=6.33.0.*,!=6.33.1.*,!=6.33.2.*,!=6.33.3.*,!=6.33.4.*,>=5.29.6",
+    "fastapi[standard]<0.137.0,>=0.133.0",
+    "starlette>=1.0.1",
+    "aiohttp>=3.13.3",
+    "openai>=2.0.0",
+    "pydantic>=2.12.0",
+    "prometheus-client>=0.18.0",
+    "pillow",
+    "prometheus-fastapi-instrumentator>=8.0.0",
+    "tiktoken>=0.6.0",
+    "lm-format-enforcer==0.11.3",
+    "llguidance<1.8.0,>=1.7.0 ; platform_machine == 'x86_64' or platform_machine == 'arm64' or platform_machine == 'aarch64' or platform_machine == 'ppc64le'",
+    "outlines-core==0.2.14",
+    "diskcache==5.6.3",
+    "lark==1.2.2",
+    "xgrammar<1.0.0,>=0.2.1 ; platform_machine == 'x86_64' or platform_machine == 'aarch64' or platform_machine == 'arm64' or platform_machine == 's390x' or platform_machine == 'ppc64le'",
+    "typing-extensions>=4.10",
+    "filelock>=3.16.1",
+    "partial-json-parser",
+    "jsonschema>=4.23.0",
+    "pyzmq>=25.0.0",
+    "msgspec",
+    "mistral-common[image]>=1.11.3",
+    "opencv-python-headless>=4.13.0",
+    "pyyaml",
+    "six>=1.16.0 ; python_version > '3.11'",
+    "setuptools<81.0.0,>=77.0.3 ; python_version > '3.11'",
+    "einops",
+    "compressed-tensors==0.17.0",
+    "depyf==0.20.0",
+    "cloudpickle",
+    "watchfiles",
+    "python-json-logger",
+    "ninja",
+    "pybase64",
+    "cbor2",
+    "ijson",
+    "setproctitle",
+    "openai-harmony>=0.0.3",
+    "anthropic>=0.71.0",
+    "model-hosting-container-standards<1.0.0,>=0.1.14",
+    "mcp",
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-api>=1.27.0",
+    "opentelemetry-exporter-otlp>=1.27.0",
+    "opentelemetry-semantic-conventions-ai>=0.4.1",
+    "numba==0.65.0",
+    "torch==2.12.1",
+    "torchaudio==2.11.0",
+    "torchvision==0.27.1",
+    "flashinfer-python==0.6.12",
+    "flashinfer-cubin==0.6.12",
+    "apache-tvm-ffi==0.1.9",
+    "tilelang==0.1.9",
+    "nvidia-cudnn-frontend>=1.19.1",
+    "fastsafetensors>=0.3.2",
+    "nvidia-cutlass-dsl==4.5.2",
+    "quack-kernels>=0.3.3",
+    "tokenspeed-mla==0.1.2",
+    "humming-kernels[cu13]==0.1.6",
 ]
 
 [tool.uv.exclude-newer-package]
@@ -231,7 +324,7 @@ vllm-router = false
 dion = false
 deep-ep = false
 deep-gemm = false
-nixl-cu12 = false
+nixl-cu13 = false
 
 [tool.uv.sources]
 prime-rl-configs = { path = "packages/prime-rl-configs", editable = true }
@@ -308,39 +401,52 @@ wiki-search-v1 = { path = "deps/verifiers/environments/wiki_search_v1", editable
 wikispeedia-v1 = { path = "deps/research-environments/environments/wikispeedia_v1", editable = true }
 wordle = { path = "deps/verifiers/environments/wordle", editable = true }
 wordle-v1 = { path = "deps/verifiers/environments/wordle_v1", editable = true }
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+torchaudio = { git = "https://github.com/pytorch/audio.git", tag = "v2.11.0" }
 torchtitan = { git = "https://github.com/pytorch/torchtitan", rev = "23e4dfc" }
 dion = { git = "https://github.com/samsja/dion.git", rev = "d891eeb" }
 flash-attn-4 = { git = "https://github.com/Dao-AILab/flash-attention.git", subdirectory = "flash_attn/cute", rev = "96bd151" }
 vllm-router = { url = "https://github.com/PrimeIntellect-ai/router/releases/download/v0.1.26/vllm_router-0.1.26-cp38-abi3-manylinux_2_28_x86_64.whl" }
-vllm = [
-    { url = "https://github.com/vllm-project/vllm/releases/download/v0.24.0/vllm-0.24.0+cu129-cp38-abi3-manylinux_2_28_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/vllm-project/vllm/releases/download/v0.24.0/vllm-0.24.0+cu129-cp38-abi3-manylinux_2_28_aarch64.whl", marker = "platform_machine == 'aarch64'" },
-]
-deep-ep = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_ep-1.2.1+29d31c0-cp312-cp312-linux_x86_64.whl" }
-deep-gemm = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_gemm-2.5.0+891d57b-cp312-cp312-linux_x86_64.whl" }
-nixl-cu12 = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/nixl_cu12-0.10.1-cp312-cp312-linux_x86_64.whl" }
+vllm = { git = "https://github.com/vllm-project/vllm.git", tag = "v0.24.0" }
+deep-ep = { git = "https://github.com/deepseek-ai/DeepEP.git", rev = "29d31c0" }
+deep-gemm = { git = "https://github.com/deepseek-ai/DeepGEMM.git", rev = "891d57b" }
 flash-linear-attention = { git = "https://github.com/fla-org/flash-linear-attention" }
-flash_attn_3 = { index = "pytorch-cu128-test" }
+flash_attn_3 = { git = "https://github.com/Dao-AILab/flash-attention.git", subdirectory = "hopper", rev = "96bd151" }
 
 [tool.uv.extra-build-dependencies]
-flash-attn = [{ requirement = "torch", match-runtime = true }]
-flash-attn-3 = [{ requirement = "torch", match-runtime = true }]
-mamba-ssm = [{ requirement = "torch", match-runtime = true }]
+flash-attn = ["torch==2.12.1", "ninja"]
+flash-attn-3 = ["torch==2.12.1", "ninja"]
+flash-attn-4 = ["torch==2.12.1", "ninja"]
+deep-ep = ["torch==2.12.1", "ninja"]
+deep-gemm = ["torch==2.12.1", "ninja"]
+mamba-ssm = ["torch==2.12.1", "ninja"]
+torchaudio = ["torch==2.12.1", "ninja"]
+vllm = [
+    "torch==2.12.1",
+    "cmake>=3.26.1",
+    "ninja",
+    "packaging>=24.2",
+    "setuptools>=77.0.3,<81.0.0",
+    "setuptools-scm>=8.0",
+    "setuptools-rust>=1.9.0",
+    "wheel",
+    "jinja2",
+]
 
 [tool.uv.extra-build-variables]
-flash-attn = { FLASH_ATTENTION_SKIP_CUDA_BUILD = "TRUE" }
+deep-ep = { CPATH = "/usr/local/cuda/include/cccl", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+deep-gemm = { CPATH = "/usr/local/cuda/include/cccl", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+flash-attn = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", FLASH_ATTN_CUDA_ARCHS = "90", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+flash-attn-3 = { FLASH_ATTENTION_DISABLE_SM80 = "TRUE", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+flash-attn-4 = { TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+mamba-ssm = { MAMBA_FORCE_BUILD = "TRUE", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+torchaudio = { USE_CUDA = "1", BUILD_SOX = "0", BUILD_VERSION = "2.11.0", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32" }
+vllm = { VLLM_TARGET_DEVICE = "cuda", VLLM_USE_PRECOMPILED_RUST = "1", TORCH_CUDA_ARCH_LIST = "9.0", MAX_JOBS = "32", NVCC_THREADS = "2" }
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu128-test"
-url = "https://download.pytorch.org/whl/test/cu128"
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true
 
 [tool.ruff.lint]

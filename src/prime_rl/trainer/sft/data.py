@@ -243,12 +243,17 @@ class SFTDataset(StatefulIterableDataset):
                 )
                 self._warned_chat_template_kwargs = True
 
-            input_ids, loss_mask = build_training_sample(
+            training_sample = build_training_sample(
                 self.renderer,
                 messages,
                 role_to_mask=should_mask,
                 tools=tools,
             )
+            if isinstance(training_sample, tuple):
+                input_ids, loss_mask = training_sample
+            else:
+                input_ids = list(training_sample.token_ids)
+                loss_mask = list(training_sample.loss_mask)
         else:
             try:
                 input_ids, loss_mask = build_incremental_token_mask(

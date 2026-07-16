@@ -19,6 +19,10 @@ def test_cluster_runtime_is_cuda_13_2_source_build():
     assert sources["torch"]["index"] == "pytorch-cu132"
     assert sources["vllm"]["git"] == "https://github.com/vllm-project/vllm.git"
     assert sources["vllm"]["tag"] == "v0.24.0"
+    inference = set(project["project"]["optional-dependencies"]["inference-cluster"])
+    assert "prime-rl[flash-attn]" in inference
+    assert not any("mamba" in dependency for dependency in inference)
+    assert not any("disagg" in dependency for dependency in inference)
 
     packages = lock["package"]
     torch = next(package for package in packages if package["name"] == "torch")

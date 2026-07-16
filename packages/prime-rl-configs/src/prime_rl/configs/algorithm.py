@@ -199,6 +199,22 @@ class GRPOAlgoConfig(BaseAlgoConfig):
     length_penalty: LengthPenaltyConfig | None = None
     """Linear length penalty subtracted from each reward before the GRPO baseline (see ``LinearLengthPenaltyConfig``): a ``pass_rate``-scaled sum of output-token, input-token, and turns terms, each normalized by the group's own max for that quantity. None disables it."""
 
+    turn_reward_metrics: list[str] | None = None
+    """Ordered rollout metric names, one per sampled assistant turn. When set,
+    GRPO centers each metric independently across the group and applies that
+    advantage only to tokens sampled during the corresponding turn."""
+
+    @model_validator(mode="after")
+    def validate_turn_reward_metrics(self):
+        if self.turn_reward_metrics is not None:
+            if not self.turn_reward_metrics:
+                raise ValueError("turn_reward_metrics must contain at least one metric name")
+            if len(self.turn_reward_metrics) != len(set(self.turn_reward_metrics)):
+                raise ValueError("turn_reward_metrics must not contain duplicate names")
+            if self.length_penalty is not None:
+                raise ValueError("turn_reward_metrics and length_penalty cannot be combined")
+        return self
+
 
 class EchoAlgoConfig(GRPOAlgoConfig):
     type: Literal["echo"] = "echo"  # type: ignore[assignment]

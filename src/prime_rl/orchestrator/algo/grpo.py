@@ -6,6 +6,7 @@ import torch
 
 from prime_rl.configs.algorithm import GRPOAlgoConfig
 from prime_rl.orchestrator.algo.base import Algorithm
+from prime_rl.orchestrator.trajectories import iter_trainable_branches
 
 if TYPE_CHECKING:
     from prime_rl.orchestrator.types import Rollout
@@ -20,8 +21,63 @@ class GRPOAlgorithm(Algorithm):
     def __init__(self, config: GRPOAlgoConfig, policy_pool: InferencePool):
         super().__init__(config, policy_pool)
         self.length_penalty = config.length_penalty
+        self.turn_reward_metrics = config.turn_reward_metrics
+
+    @staticmethod
+    def _assign_turn_advantages(rollout: Rollout, turn_advantages: list[float]) -> None:
+        """Align one group-relative advantage per sampled turn to trainable tokens."""
+        branches = list(iter_trainable_branches(rollout))
+        if len(branches) != len(rollout.samples):
+            raise ValueError(
+                f"turn-aware GRPO branch/sample mismatch: {len(branches)} branches, {len(rollout.samples)} samples"
+            )
+
+        values: list[float] = []
+        for (branch, trainable_mask), sample in zip(branches, rollout.samples, strict=True):
+            if len(trainable_mask) != len(sample.token_ids):
+                raise ValueError(
+                    "turn-aware GRPO mask/sample mismatch: "
+                    f"{len(trainable_mask)} mask values, {len(sample.token_ids)} tokens"
+                )
+            sample_values = [0.0] * len(sample.token_ids)
+            offset = 0
+            turn_index = 0
+            for node in branch.nodes:
+                node_length = len(node.token_ids)
+                if node.sampled:
+                    if turn_index >= len(turn_advantages):
+                        raise ValueError(
+                            "rollout has more sampled turns than configured metrics "
+                            f"({turn_index + 1} > {len(turn_advantages)})"
+                        )
+                    advantage = turn_advantages[turn_index]
+                    for index, trainable in enumerate(trainable_mask[offset : offset + node_length]):
+                        if trainable:
+                            sample_values[offset + index] = advantage
+                    turn_index += 1
+                offset += node_length
+            if turn_index != len(turn_advantages):
+                raise ValueError(
+                    "rollout sampled-turn count does not match configured metrics "
+                    f"({turn_index} != {len(turn_advantages)})"
+                )
+            values.extend(sample_values)
+        rollout.assign_advantages(values)
 
     async def score_group(self, group: list[Rollout]) -> None:
+        if self.turn_reward_metrics:
+            missing = {name for rollout in group for name in self.turn_reward_metrics if name not in rollout.metrics}
+            if missing:
+                raise ValueError("turn-aware GRPO rollout metrics are missing: " + ", ".join(sorted(missing)))
+            rewards = torch.tensor(
+                [[rollout.metrics[name] for name in self.turn_reward_metrics] for rollout in group],
+                dtype=torch.float32,
+            )
+            advantages = rewards - rewards.mean(dim=0, keepdim=True)
+            for rollout, per_turn in zip(group, advantages.tolist(), strict=True):
+                self._assign_turn_advantages(rollout, per_turn)
+            return
+
         rewards = torch.tensor([rollout.reward for rollout in group], dtype=torch.float32)
         length_penalty = self.length_penalty
         if length_penalty is None:

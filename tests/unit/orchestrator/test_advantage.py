@@ -166,6 +166,49 @@ def test_grpo_singleton_group_is_zero():
     assert _grpo([_build_rollout(0.7, sampled_lengths=[2])]) == pytest.approx([0.0], abs=1e-6)
 
 
+def test_grpo_turn_rewards_assign_independent_credit_per_turn():
+    group = [
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 3],
+            obs_lengths=[1],
+            metrics={"description": 1.0, "reconstruction": 0.0},
+        ),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 3],
+            obs_lengths=[1],
+            metrics={"description": 0.0, "reconstruction": 1.0},
+        ),
+    ]
+    config = GRPOAlgoConfig(turn_reward_metrics=["description", "reconstruction"])
+
+    asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.5, 0.5, 0.0, -0.5, -0.5, -0.5])
+    assert group[1].advantages == pytest.approx([0.0, -0.5, -0.5, 0.0, 0.5, 0.5, 0.5])
+
+
+def test_grpo_turn_rewards_require_every_metric():
+    rollout = _build_rollout(
+        0.0,
+        sampled_lengths=[1, 1],
+        metrics={"description": 1.0},
+    )
+    config = GRPOAlgoConfig(turn_reward_metrics=["description", "reconstruction"])
+
+    with pytest.raises(ValueError, match="reconstruction"):
+        asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group([rollout]))
+
+
+def test_grpo_turn_rewards_reject_length_penalty():
+    with pytest.raises(ValueError, match="cannot be combined"):
+        GRPOAlgoConfig(
+            turn_reward_metrics=["description"],
+            length_penalty=LinearLengthPenaltyConfig(),
+        )
+
+
 def test_max_rl_mean_normalized():
     # mean 0.25: the success gets (1 - 0.25)/0.25 = 3, failures (0 - 0.25)/0.25 = -1
     assert _max_rl(_make_group(rewards=[1.0, 0.0, 0.0, 0.0])) == pytest.approx([3.0, -1.0, -1.0, -1.0])

@@ -28,3 +28,11 @@ def test_qwen3_5_single_row_keeps_internal_packed_boundaries():
     cu_seqlens = _get_qwen3_5_cu_seqlens(position_ids)
 
     torch.testing.assert_close(cu_seqlens, torch.tensor([0, 3, 5], dtype=torch.int32))
+
+
+def test_qwen3_5_single_row_collapses_trailing_padding_resets():
+    position_ids = torch.tensor([[0, 1, 2, 0, 0, 0]])
+
+    cu_seqlens = _get_qwen3_5_cu_seqlens(position_ids)
+
+    torch.testing.assert_close(cu_seqlens, torch.tensor([0, 3, 6], dtype=torch.int32))

@@ -54,7 +54,6 @@ from prime_rl.trainer.weights import (
 )
 from prime_rl.trainer.world import get_world
 from prime_rl.utils.logger import get_logger
-from prime_rl.utils.sequence import get_cu_seqlens_from_position_ids
 from prime_rl.utils.utils import format_time
 from prime_rl.utils.vlm import get_language_model, get_vision_encoder, is_vlm_architecture
 
@@ -147,8 +146,28 @@ def _get_qwen3_5_cu_seqlens(position_ids: torch.Tensor) -> torch.Tensor:
             dtype=torch.int32,
             device=position_ids.device,
         )
-    cu_seqlens, _ = get_cu_seqlens_from_position_ids(position_ids)
-    return cu_seqlens
+    flat_position_ids = position_ids.reshape(-1)
+    total_tokens = flat_position_ids.numel()
+    assert total_tokens > 0, "Cannot build cu_seqlens for an empty position_ids tensor"
+
+    # A stack-packed row is padded with repeated position id 0. Treat the start
+    # of that trailing run as one boundary instead of interpreting every padding
+    # token as a separate one-token sequence. The latter can make FLA construct
+    # an invalid Triton launch grid for heavily padded rows.
+    reset = flat_position_ids == 0
+    starts = reset & torch.cat(
+        [
+            torch.ones(1, dtype=torch.bool, device=position_ids.device),
+            flat_position_ids[:-1] != 0,
+        ]
+    )
+    start_offsets = starts.nonzero(as_tuple=True)[0]
+    return torch.cat(
+        [
+            start_offsets.to(dtype=torch.int32),
+            torch.tensor([total_tokens], dtype=torch.int32, device=position_ids.device),
+        ]
+    )
 
 
 def _patch_qwen3_5_linear_attn_varlen():

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic_config import ConfigFileError
 
 from prime_rl.configs.inference import InferenceConfig
-from prime_rl.configs.orchestrator import OrchestratorConfig
+from prime_rl.configs.orchestrator import OrchestratorConfig, TrainSamplingConfig
 from prime_rl.configs.rl import RLConfig
 from prime_rl.configs.sft import SFTConfig
 from prime_rl.configs.trainer import ModelConfig as TrainerModelConfig
@@ -99,6 +99,12 @@ def test_defaults():
     assert config.nested.weight_decay == 0.01
     assert config.variant.type == "a"
     assert config.variant.alpha == 0.1
+
+
+def test_train_sampling_top_p_is_configurable():
+    sampling = TrainSamplingConfig(top_p=0.8)
+    assert sampling.to_sampling_args()["top_p"] == 0.8
+    assert TrainSamplingConfig().to_sampling_args()["top_p"] == 1.0
 
 
 def test_toml_partial_nested_override(tmp_path):

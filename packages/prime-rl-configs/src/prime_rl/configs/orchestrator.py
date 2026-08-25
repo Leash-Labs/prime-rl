@@ -53,6 +53,9 @@ class TrainSamplingConfig(BaseConfig):
     temperature: float = Field(1.0, ge=0, le=2.0)
     """Sampling temperature."""
 
+    top_p: float = Field(1.0, ge=0, le=1.0)
+    """Nucleus sampling threshold."""
+
     max_completion_tokens: int | None = Field(
         None, validation_alias=AliasChoices("max_completion_tokens", "max_tokens")
     )
@@ -67,7 +70,7 @@ class TrainSamplingConfig(BaseConfig):
         """Convert to OAI-compatible sampling args dict, omitting None values."""
         args: dict[str, Any] = {
             "temperature": self.temperature,
-            "top_p": 1.0,
+            "top_p": self.top_p,
             "logprobs": True,
         }
         if self.max_completion_tokens is not None:

@@ -216,6 +216,18 @@ class GRPOAlgoConfig(BaseAlgoConfig):
         return self
 
 
+class LakatosGRPOAlgoConfig(BaseAlgoConfig):
+    type: Literal["lakatos_grpo"] = "lakatos_grpo"
+    action_loss_type: ClassVar[ActionLossType] = "rl"
+    reward_metric_prefix: str = "stage_reward_"
+
+    @model_validator(mode="after")
+    def validate_reward_metric_prefix(self):
+        if not self.reward_metric_prefix:
+            raise ValueError("reward_metric_prefix must not be empty")
+        return self
+
+
 class EchoAlgoConfig(GRPOAlgoConfig):
     type: Literal["echo"] = "echo"  # type: ignore[assignment]
     """ECHO: group-relative advantage on action tokens (GRPO), plus weighted
@@ -321,7 +333,13 @@ class SFTAlgoConfig(BaseAlgoConfig):
 
 
 AlgoConfig: TypeAlias = Annotated[
-    GRPOAlgoConfig | EchoAlgoConfig | MaxRLAlgoConfig | OPDAlgoConfig | OPSDAlgoConfig | SFTAlgoConfig,
+    GRPOAlgoConfig
+    | LakatosGRPOAlgoConfig
+    | EchoAlgoConfig
+    | MaxRLAlgoConfig
+    | OPDAlgoConfig
+    | OPSDAlgoConfig
+    | SFTAlgoConfig,
     Field(discriminator="type"),
 ]
 """The training algorithm: sampling plus the per-token training signal (credit

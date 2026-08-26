@@ -5,10 +5,12 @@ import verifiers.v1 as vf
 
 from prime_rl.configs.algorithm import (
     GRPOAlgoConfig,
+    LakatosGRPOAlgoConfig,
     LinearLengthPenaltyConfig,
     MaxRLAlgoConfig,
 )
 from prime_rl.orchestrator.algo.grpo import GRPOAlgorithm
+from prime_rl.orchestrator.algo.lakatos_grpo import LakatosGRPOAlgorithm
 from prime_rl.orchestrator.algo.max_rl import MaxRLAlgorithm
 from prime_rl.orchestrator.trajectories import trace_to_samples
 from prime_rl.orchestrator.types import Rollout
@@ -207,6 +209,44 @@ def test_grpo_turn_rewards_reject_length_penalty():
             turn_reward_metrics=["description"],
             length_penalty=LinearLengthPenaltyConfig(),
         )
+
+
+def test_lakatos_grpo_uses_standardized_return_to_go():
+    group = [
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 2],
+            obs_lengths=[1],
+            metrics={"stage_reward_0": 1.0, "stage_reward_1": 0.0},
+        ),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 2],
+            obs_lengths=[1],
+            metrics={"stage_reward_0": 0.0, "stage_reward_1": 1.0},
+        ),
+    ]
+    algorithm = LakatosGRPOAlgorithm(LakatosGRPOAlgoConfig(), policy_pool=None)
+
+    asyncio.run(algorithm.score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.0, 0.0, 0.0, -1.0, -1.0])
+    assert group[1].advantages == pytest.approx([0.0, 0.0, 0.0, 0.0, 1.0, 1.0])
+
+
+def test_lakatos_grpo_rejects_inconsistent_turn_counts():
+    group = [
+        _build_rollout(0.0, sampled_lengths=[1], metrics={"stage_reward_0": 1.0}),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[1, 1],
+            metrics={"stage_reward_0": 1.0, "stage_reward_1": 1.0},
+        ),
+    ]
+    algorithm = LakatosGRPOAlgorithm(LakatosGRPOAlgoConfig(), policy_pool=None)
+
+    with pytest.raises(ValueError, match="equal turn counts"):
+        asyncio.run(algorithm.score_group(group))
 
 
 def test_max_rl_mean_normalized():

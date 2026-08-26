@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 from prime_rl.orchestrator.algo.base import Algorithm, connect_frozen_pool
 from prime_rl.orchestrator.algo.echo import EchoAlgorithm
 from prime_rl.orchestrator.algo.grpo import GRPOAlgorithm
+from prime_rl.orchestrator.algo.lakatos_grpo import LakatosGRPOAlgorithm
 from prime_rl.orchestrator.algo.max_rl import MaxRLAlgorithm
 from prime_rl.orchestrator.algo.opd import OPDAlgorithm
 from prime_rl.orchestrator.algo.opsd import OPSDAlgorithm
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
 # each config class's defaults are its vetted parameterization.
 ALGORITHM_CLASSES: dict[str, type[Algorithm]] = {
     "grpo": GRPOAlgorithm,
+    "lakatos_grpo": LakatosGRPOAlgorithm,
     "echo": EchoAlgorithm,
     "max_rl": MaxRLAlgorithm,
     "opd": OPDAlgorithm,
@@ -69,6 +71,7 @@ __all__ = [
     "Algorithm",
     "EchoAlgorithm",
     "GRPOAlgorithm",
+    "LakatosGRPOAlgorithm",
     "MaxRLAlgorithm",
     "OPDAlgorithm",
     "OPSDAlgorithm",

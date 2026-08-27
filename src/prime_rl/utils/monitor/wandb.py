@@ -286,7 +286,7 @@ class WandbMonitor(Monitor):
         dir_path = self.output_dir / f"run-{self.wandb.id}"
         dir_path.mkdir(parents=True, exist_ok=True)
         with open(dir_path / filename, "w") as f:
-            json.dump(wandb.summary._as_dict(), f)
+            json.dump(dict(wandb.summary), f)
 
 
 # --- curated "overview" saved view -------------------------------------------------------------

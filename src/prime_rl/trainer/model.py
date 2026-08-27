@@ -54,7 +54,6 @@ from prime_rl.trainer.weights import (
 )
 from prime_rl.trainer.world import get_world
 from prime_rl.utils.logger import get_logger
-from prime_rl.utils.sequence import get_cu_seqlens_from_position_ids
 from prime_rl.utils.utils import format_time
 from prime_rl.utils.vlm import get_language_model, get_vision_encoder, is_vlm_architecture
 
@@ -128,6 +127,49 @@ def _patch_qwen3_5_text_position_ids():
         decoder_layer_cls.forward = _make_patched_forward(_original_forward)
 
 
+def _flatten_qwen3_5_varlen_batch(hidden_states: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
+    """Flatten stacked rows into the single token stream described by cu_seqlens."""
+    batch_size, seq_len, hidden_size = hidden_states.shape
+    return hidden_states.reshape(1, batch_size * seq_len, hidden_size), (batch_size, seq_len)
+
+
+def _get_qwen3_5_cu_seqlens(position_ids: torch.Tensor) -> torch.Tensor:
+    """Build GatedDeltaNet boundaries for cat-packed or row-stacked inputs."""
+    if position_ids.ndim == 3:
+        position_ids = position_ids[0]
+    if position_ids.ndim == 2 and position_ids.shape[0] > 1:
+        row_len = position_ids.shape[1]
+        return torch.arange(
+            0,
+            position_ids.numel() + 1,
+            row_len,
+            dtype=torch.int32,
+            device=position_ids.device,
+        )
+    flat_position_ids = position_ids.reshape(-1)
+    total_tokens = flat_position_ids.numel()
+    assert total_tokens > 0, "Cannot build cu_seqlens for an empty position_ids tensor"
+
+    # A stack-packed row is padded with repeated position id 0. Treat the start
+    # of that trailing run as one boundary instead of interpreting every padding
+    # token as a separate one-token sequence. The latter can make FLA construct
+    # an invalid Triton launch grid for heavily padded rows.
+    reset = flat_position_ids == 0
+    starts = reset & torch.cat(
+        [
+            torch.ones(1, dtype=torch.bool, device=position_ids.device),
+            flat_position_ids[:-1] != 0,
+        ]
+    )
+    start_offsets = starts.nonzero(as_tuple=True)[0]
+    return torch.cat(
+        [
+            start_offsets.to(dtype=torch.int32),
+            torch.tensor([total_tokens], dtype=torch.int32, device=position_ids.device),
+        ]
+    )
+
+
 def _patch_qwen3_5_linear_attn_varlen():
     """Thread cu_seqlens through Qwen3.5 GatedDeltaNet so packed batches don't
     leak conv/SSM state across sequences.
@@ -154,6 +196,7 @@ def _patch_qwen3_5_linear_attn_varlen():
             return _gdn_orig(self, hidden_states, cache_params=cache_params, attention_mask=attention_mask)
 
         hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
+        hidden_states, output_shape = _flatten_qwen3_5_varlen_batch(hidden_states)
         batch_size, seq_len, _ = hidden_states.shape
 
         mixed_qkv = self.in_proj_qkv(hidden_states).transpose(1, 2)
@@ -213,7 +256,7 @@ def _patch_qwen3_5_linear_attn_varlen():
         z = z.reshape(-1, self.head_v_dim)
         core_attn_out = self.norm(core_attn_out, z)
         core_attn_out = core_attn_out.reshape(batch_size, seq_len, -1)
-        return self.out_proj(core_attn_out)
+        return self.out_proj(core_attn_out).reshape(*output_shape, -1)
 
     _gdn_forward._prl_varlen_patched = True
     Qwen3_5GatedDeltaNet.forward = _gdn_forward
@@ -274,10 +317,7 @@ def _patch_qwen3_5_linear_attn_varlen():
         attn_impl = getattr(self.config, "_attn_implementation", None)
         cu_seqlens = None
         if attn_impl in ("flash_attention_2", "flash_attention_3", "fa4") and position_ids is not None:
-            pids = position_ids
-            if pids.ndim == 3:
-                pids = pids[0]
-            cu_seqlens, _ = get_cu_seqlens_from_position_ids(pids)
+            cu_seqlens = _get_qwen3_5_cu_seqlens(position_ids)
         kwargs["cu_seqlens"] = cu_seqlens
         return _text_orig(
             self,

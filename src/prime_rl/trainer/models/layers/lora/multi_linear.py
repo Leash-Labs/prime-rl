@@ -53,7 +53,9 @@ class MultiLoRALinear(MultiLoRAModule):
         if rank <= 0 or n_adapters <= 0:
             raise ValueError("rank and n_adapters must be > 0")
 
-        if rank % 8 != 0 or base_layer.in_features % 8 != 0 or base_layer.out_features % 8 != 0:
+        # A single adapter has no grouped-GEMM batching benefit, and ordinary
+        # matmul accepts strided gradients that torch._grouped_mm rejects.
+        if n_adapters == 1 or rank % 8 != 0 or base_layer.in_features % 8 != 0 or base_layer.out_features % 8 != 0:
             use_grouped_mm = False
 
         self.rank = rank

@@ -5,10 +5,12 @@ import verifiers.v1 as vf
 
 from prime_rl.configs.algorithm import (
     GRPOAlgoConfig,
+    LakatosGRPOAlgoConfig,
     LinearLengthPenaltyConfig,
     MaxRLAlgoConfig,
 )
 from prime_rl.orchestrator.algo.grpo import GRPOAlgorithm
+from prime_rl.orchestrator.algo.lakatos_grpo import LakatosGRPOAlgorithm
 from prime_rl.orchestrator.algo.max_rl import MaxRLAlgorithm
 from prime_rl.orchestrator.trajectories import trace_to_samples
 from prime_rl.orchestrator.types import Rollout
@@ -118,6 +120,43 @@ def _make_rollout(
     return _build_rollout(reward, sampled_lengths=sampled_lengths, env_name=env_name, metrics=metrics)
 
 
+def _build_branched_rollout(metrics: dict[str, float]) -> Rollout:
+    nodes = [
+        vf.MessageNode(
+            message=vf.UserMessage(content="q"),
+            token_ids=[0],
+            mask=[False],
+            logprobs=[0.0],
+            sampled=False,
+            parent=None,
+        ),
+        vf.MessageNode(
+            message=vf.AssistantMessage(content="a"),
+            token_ids=[1, 2],
+            mask=[True, True],
+            logprobs=[-0.1, -0.1],
+            sampled=True,
+            parent=0,
+        ),
+        vf.MessageNode(
+            message=vf.AssistantMessage(content="b"),
+            token_ids=[3, 4],
+            mask=[True, True],
+            logprobs=[-0.1, -0.1],
+            sampled=True,
+            parent=0,
+        ),
+    ]
+    rollout = Rollout[vf.TaskData](
+        task=vf.TraceTask(type="Task", data=vf.TaskData(idx=0, prompt=None)),
+        nodes=nodes,
+        rewards={"reward": 0.0},
+        metrics=metrics,
+    )
+    rollout.samples = trace_to_samples(rollout, env_name="test")
+    return rollout
+
+
 def _make_group(rewards, completion_lengths=None, num_turns=None) -> list[Rollout]:
     """Build one group of ``Rollout``\\ s from 1D arrays of rewards/lengths/turns —
     exactly what ``score_group`` sees."""
@@ -164,6 +203,100 @@ def test_grpo_plain_mean():
 def test_grpo_singleton_group_is_zero():
     # A group of size 1 has reward == mean, so its advantage is 0.
     assert _grpo([_build_rollout(0.7, sampled_lengths=[2])]) == pytest.approx([0.0], abs=1e-6)
+
+
+def test_grpo_turn_rewards_assign_independent_credit_per_turn():
+    group = [
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 3],
+            obs_lengths=[1],
+            metrics={"description": 1.0, "reconstruction": 0.0},
+        ),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 3],
+            obs_lengths=[1],
+            metrics={"description": 0.0, "reconstruction": 1.0},
+        ),
+    ]
+    config = GRPOAlgoConfig(turn_reward_metrics=["description", "reconstruction"])
+
+    asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.5, 0.5, 0.0, -0.5, -0.5, -0.5])
+    assert group[1].advantages == pytest.approx([0.0, -0.5, -0.5, 0.0, 0.5, 0.5, 0.5])
+
+
+def test_grpo_turn_rewards_require_every_metric():
+    rollout = _build_rollout(
+        0.0,
+        sampled_lengths=[1, 1],
+        metrics={"description": 1.0},
+    )
+    config = GRPOAlgoConfig(turn_reward_metrics=["description", "reconstruction"])
+
+    with pytest.raises(ValueError, match="reconstruction"):
+        asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group([rollout]))
+
+
+def test_grpo_turn_rewards_assign_credit_across_branches():
+    group = [
+        _build_branched_rollout({"first": 1.0, "second": 0.0}),
+        _build_branched_rollout({"first": 0.0, "second": 1.0}),
+    ]
+    config = GRPOAlgoConfig(turn_reward_metrics=["first", "second"])
+
+    asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.5, 0.5, 0.0, -0.5, -0.5])
+    assert group[1].advantages == pytest.approx([0.0, -0.5, -0.5, 0.0, 0.5, 0.5])
+
+
+def test_grpo_turn_rewards_reject_length_penalty():
+    with pytest.raises(ValueError, match="cannot be combined"):
+        GRPOAlgoConfig(
+            turn_reward_metrics=["description"],
+            length_penalty=LinearLengthPenaltyConfig(),
+        )
+
+
+def test_lakatos_grpo_uses_standardized_return_to_go():
+    group = [
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 2],
+            obs_lengths=[1],
+            metrics={"stage_reward_0": 1.0, "stage_reward_1": 0.0},
+        ),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[2, 2],
+            obs_lengths=[1],
+            metrics={"stage_reward_0": 0.0, "stage_reward_1": 1.0},
+        ),
+    ]
+    algorithm = LakatosGRPOAlgorithm(LakatosGRPOAlgoConfig(), policy_pool=None)
+
+    asyncio.run(algorithm.score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.0, 0.0, 0.0, -1.0, -1.0])
+    assert group[1].advantages == pytest.approx([0.0, 0.0, 0.0, 0.0, 1.0, 1.0])
+
+
+def test_lakatos_grpo_rejects_inconsistent_turn_counts():
+    group = [
+        _build_rollout(0.0, sampled_lengths=[1], metrics={"stage_reward_0": 1.0}),
+        _build_rollout(
+            0.0,
+            sampled_lengths=[1, 1],
+            metrics={"stage_reward_0": 1.0, "stage_reward_1": 1.0},
+        ),
+    ]
+    algorithm = LakatosGRPOAlgorithm(LakatosGRPOAlgoConfig(), policy_pool=None)
+
+    with pytest.raises(ValueError, match="equal turn counts"):
+        asyncio.run(algorithm.score_group(group))
 
 
 def test_max_rl_mean_normalized():

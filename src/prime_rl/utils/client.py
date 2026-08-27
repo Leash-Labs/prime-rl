@@ -24,6 +24,21 @@ from prime_rl.utils.logger import get_logger
 ClientIdentity = tuple[str, str | None]
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        get_logger().warning(f"Ignoring invalid {name}={raw!r}; expected float")
+        return default
+    if value <= 0:
+        get_logger().warning(f"Ignoring invalid {name}={raw!r}; expected positive float")
+        return default
+    return value
+
+
 def client_identity(client: vf.ClientConfig) -> ClientIdentity:
     """Stable identity for load balancing across inference clients."""
     return (client.base_url, client.headers.get("X-data-parallel-rank"))
@@ -464,8 +479,8 @@ def _is_retryable_lora_error(exception: BaseException) -> bool:
 # `_PER_ATTEMPT` converts a hang into a TimeoutException so tenacity retries;
 # `_TOTAL` is the wall-clock budget across all retries — pick whichever
 # stop condition fires first.
-LORA_LOAD_READ_TIMEOUT_S = 30.0
-LORA_LOAD_TOTAL_TIMEOUT_S = 120.0
+LORA_LOAD_READ_TIMEOUT_S = _env_float("PRIME_RL_LORA_LOAD_READ_TIMEOUT_S", 300.0)
+LORA_LOAD_TOTAL_TIMEOUT_S = _env_float("PRIME_RL_LORA_LOAD_TOTAL_TIMEOUT_S", 600.0)
 
 
 async def load_lora_adapter(admin_clients: list[AsyncClient], lora_name: str, lora_path: Path) -> None:

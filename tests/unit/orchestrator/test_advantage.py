@@ -120,6 +120,43 @@ def _make_rollout(
     return _build_rollout(reward, sampled_lengths=sampled_lengths, env_name=env_name, metrics=metrics)
 
 
+def _build_branched_rollout(metrics: dict[str, float]) -> Rollout:
+    nodes = [
+        vf.MessageNode(
+            message=vf.UserMessage(content="q"),
+            token_ids=[0],
+            mask=[False],
+            logprobs=[0.0],
+            sampled=False,
+            parent=None,
+        ),
+        vf.MessageNode(
+            message=vf.AssistantMessage(content="a"),
+            token_ids=[1, 2],
+            mask=[True, True],
+            logprobs=[-0.1, -0.1],
+            sampled=True,
+            parent=0,
+        ),
+        vf.MessageNode(
+            message=vf.AssistantMessage(content="b"),
+            token_ids=[3, 4],
+            mask=[True, True],
+            logprobs=[-0.1, -0.1],
+            sampled=True,
+            parent=0,
+        ),
+    ]
+    rollout = Rollout[vf.TaskData](
+        task=vf.TraceTask(type="Task", data=vf.TaskData(idx=0, prompt=None)),
+        nodes=nodes,
+        rewards={"reward": 0.0},
+        metrics=metrics,
+    )
+    rollout.samples = trace_to_samples(rollout, env_name="test")
+    return rollout
+
+
 def _make_group(rewards, completion_lengths=None, num_turns=None) -> list[Rollout]:
     """Build one group of ``Rollout``\\ s from 1D arrays of rewards/lengths/turns —
     exactly what ``score_group`` sees."""
@@ -201,6 +238,19 @@ def test_grpo_turn_rewards_require_every_metric():
 
     with pytest.raises(ValueError, match="reconstruction"):
         asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group([rollout]))
+
+
+def test_grpo_turn_rewards_assign_credit_across_branches():
+    group = [
+        _build_branched_rollout({"first": 1.0, "second": 0.0}),
+        _build_branched_rollout({"first": 0.0, "second": 1.0}),
+    ]
+    config = GRPOAlgoConfig(turn_reward_metrics=["first", "second"])
+
+    asyncio.run(GRPOAlgorithm(config, policy_pool=None).score_group(group))
+
+    assert group[0].advantages == pytest.approx([0.0, 0.5, 0.5, 0.0, -0.5, -0.5])
+    assert group[1].advantages == pytest.approx([0.0, -0.5, -0.5, 0.0, 0.5, 0.5])
 
 
 def test_grpo_turn_rewards_reject_length_penalty():

@@ -26,6 +26,15 @@ class GRPOAlgorithm(Algorithm):
     @staticmethod
     def _assign_turn_advantages(rollout: Rollout, turn_advantages: list[float]) -> None:
         """Align one group-relative advantage per sampled turn to trainable tokens."""
+        sampled_nodes = [node for node in rollout.nodes if node.sampled]
+        if len(sampled_nodes) != len(turn_advantages):
+            raise ValueError(
+                "rollout sampled-turn count does not match configured metrics "
+                f"({len(sampled_nodes)} != {len(turn_advantages)})"
+            )
+        advantages_by_node = {
+            id(node): advantage for node, advantage in zip(sampled_nodes, turn_advantages, strict=True)
+        }
         branches = list(iter_trainable_branches(rollout))
         if len(branches) != len(rollout.samples):
             raise ValueError(
@@ -38,29 +47,17 @@ class GRPOAlgorithm(Algorithm):
                 raise ValueError(
                     "turn-aware GRPO mask/sample mismatch: "
                     f"{len(trainable_mask)} mask values, {len(sample.token_ids)} tokens"
-                )
+            )
             sample_values = [0.0] * len(sample.token_ids)
             offset = 0
-            turn_index = 0
             for node in branch.nodes:
                 node_length = len(node.token_ids)
                 if node.sampled:
-                    if turn_index >= len(turn_advantages):
-                        raise ValueError(
-                            "rollout has more sampled turns than configured metrics "
-                            f"({turn_index + 1} > {len(turn_advantages)})"
-                        )
-                    advantage = turn_advantages[turn_index]
+                    advantage = advantages_by_node[id(node)]
                     for index, trainable in enumerate(trainable_mask[offset : offset + node_length]):
                         if trainable:
                             sample_values[offset + index] = advantage
-                    turn_index += 1
                 offset += node_length
-            if turn_index != len(turn_advantages):
-                raise ValueError(
-                    "rollout sampled-turn count does not match configured metrics "
-                    f"({turn_index} != {len(turn_advantages)})"
-                )
             values.extend(sample_values)
         rollout.assign_advantages(values)
 

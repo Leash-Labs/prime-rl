@@ -47,7 +47,7 @@ class GRPOAlgorithm(Algorithm):
                 raise ValueError(
                     "turn-aware GRPO mask/sample mismatch: "
                     f"{len(trainable_mask)} mask values, {len(sample.token_ids)} tokens"
-            )
+                )
             sample_values = [0.0] * len(sample.token_ids)
             offset = 0
             for node in branch.nodes:
